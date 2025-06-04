@@ -130,22 +130,13 @@ def view_file(filename):
                     "boxes": boxes,
                     "arrows": svg_arrows,
                     "element_names": element_names,
-                    "max_x": max_x + 100,
-                    "max_y": max_y + 100
+                    "max_x": max_x + 200,
+                    "max_y": max_y + 200
                 })
 
         return render_template_string("""
         <h1>Viewing: {{ filename }}</h1>
         <a href="{{ url_for('index') }}">← Back to file list</a>
-        <p><strong>Elements:</strong> {{ elements|length }} | <strong>Relationships:</strong> {{ relationships|length }}</p>
-        <ul>
-            {% for e in elements %}<li>{{ e.name }} ({{ e.type }})</li>{% endfor %}
-        </ul>
-        <ul>
-            {% for r in relationships %}
-                <li>{{ r.type }} from {{ element_names.get(r.source, r.source) }} → {{ element_names.get(r.target, r.target) }}</li>
-            {% endfor %}
-        </ul>
         {% for d in diagrams %}
             <h3>📊 Diagram: {{ d.name }}</h3>
             <svg width="{{ d.max_x }}" height="{{ d.max_y }}" style="border:1px solid #ccc;">
@@ -168,7 +159,7 @@ def view_file(filename):
                 </defs>
             </svg>
         {% endfor %}
-        """, filename=filename, elements=elements, relationships=relationships, diagrams=diagrams, element_names=element_names)
+        """, filename=filename, diagrams=diagrams)
 
     except Exception as e:
         return f"<h2>Error parsing {filename}: {str(e)}</h2>"
