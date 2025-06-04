@@ -27,8 +27,43 @@ def find_all_elements(root):
                 relationships.append(data)
             else:
                 elements.append(data)
-
     return elements, relationships
+
+def parse_diagram_objects(parent_elem):
+    boxes = []
+    for child in parent_elem.findall("./child"):
+        bounds = child.find(".//bounds")
+        if bounds is None:
+            continue
+
+        box = {
+            "id": child.attrib.get("id"),
+            "element_id": child.attrib.get("archimateElement"),
+            "x": int(bounds.attrib.get("x", 0)),
+            "y": int(bounds.attrib.get("y", 0)),
+            "width": int(bounds.attrib.get("width", 120)),
+            "height": int(bounds.attrib.get("height", 55)),
+            "children": parse_diagram_objects(child)  # recursion
+        }
+        boxes.append(box)
+    return boxes
+
+def flatten_boxes(boxes, offset_x=0, offset_y=0):
+    flat = []
+    for box in boxes:
+        abs_x = offset_x + box["x"]
+        abs_y = offset_y + box["y"]
+        flat_box = {
+            "id": box["id"],
+            "element_id": box["element_id"],
+            "x": abs_x,
+            "y": abs_y,
+            "width": box["width"],
+            "height": box["height"]
+        }
+        flat.append(flat_box)
+        flat.extend(flatten_boxes(box["children"], abs_x, abs_y))
+    return flat
 
 def get_connection_points(src, tgt):
     src_cx = src["x"] + src["width"] / 2
@@ -81,57 +116,34 @@ def view_file(filename):
 
         elements, relationships = find_all_elements(root)
         element_names = {e['id']: e['name'] for e in elements}
-
         diagrams = []
 
         for diagram in root.iter():
             if strip_ns(diagram.tag) == "element" and diagram.attrib.get("{http://www.w3.org/2001/XMLSchema-instance}type") == "archimate:ArchimateDiagramModel":
                 view_name = diagram.attrib.get("name", "Unnamed View")
-                boxes = []
+                nested_boxes = parse_diagram_objects(diagram)
+                flat_boxes = flatten_boxes(nested_boxes)
+
+                box_map = {box["id"]: box for box in flat_boxes}
                 arrows = []
-                box_id_map = {}
 
-                for child in diagram.findall(".//"):
-                    tag = strip_ns(child.tag)
-
-                    if tag == "child":
-                        bounds = child.find(".//bounds")
-                        if bounds is not None:
-                            box = {
-                                "id": child.attrib.get("id"),
-                                "element_id": child.attrib.get("archimateElement"),
-                                "x": int(bounds.attrib.get("x", 0)),
-                                "y": int(bounds.attrib.get("y", 0)),
-                                "width": int(bounds.attrib.get("width", 120)),
-                                "height": int(bounds.attrib.get("height", 55)),
-                            }
-                            boxes.append(box)
-                            box_id_map[box["id"]] = box
-
-                    elif tag == "sourceConnection":
-                        arrows.append({
-                            "source": child.attrib.get("source"),
-                            "target": child.attrib.get("target")
-                        })
-
-                svg_arrows = []
-                for arrow in arrows:
-                    src = box_id_map.get(arrow["source"])
-                    tgt = box_id_map.get(arrow["target"])
+                for child in diagram.findall(".//sourceConnection"):
+                    src = box_map.get(child.attrib.get("source"))
+                    tgt = box_map.get(child.attrib.get("target"))
                     if src and tgt:
                         x1, y1, x2, y2 = get_connection_points(src, tgt)
-                        svg_arrows.append((x1, y1, x2, y2))
+                        arrows.append((x1, y1, x2, y2))
 
-                max_x = max((b["x"] + b["width"] for b in boxes), default=800)
-                max_y = max((b["y"] + b["height"] for b in boxes), default=600)
+                max_x = max((b["x"] + b["width"] for b in flat_boxes), default=800)
+                max_y = max((b["y"] + b["height"] for b in flat_boxes), default=600)
 
                 diagrams.append({
                     "name": view_name,
-                    "boxes": boxes,
-                    "arrows": svg_arrows,
+                    "boxes": flat_boxes,
+                    "arrows": arrows,
                     "element_names": element_names,
-                    "max_x": max_x + 200,
-                    "max_y": max_y + 200
+                    "max_x": max_x + 100,
+                    "max_y": max_y + 100
                 })
 
         return render_template_string("""
@@ -143,7 +155,7 @@ def view_file(filename):
                 {% for box in d.boxes %}
                     <rect x="{{ box.x }}" y="{{ box.y }}" width="{{ box.width }}" height="{{ box.height }}"
                           fill="#e0f7fa" stroke="#00796b" stroke-width="2"/>
-                    <text x="{{ box.x + 5 }}" y="{{ box.y + 20 }}" font-size="12" fill="black">
+                    <text x="{{ box.x + 5 }}" y="{{ box.y + 15 }}" font-size="11" fill="black">
                         {{ d.element_names.get(box.element_id, box.element_id) }}
                     </text>
                 {% endfor %}
@@ -159,7 +171,7 @@ def view_file(filename):
                 </defs>
             </svg>
         {% endfor %}
-        """, filename=filename, diagrams=diagrams)
+        """, filename=filename, diagrams=diagrams, element_names=element_names)
 
     except Exception as e:
         return f"<h2>Error parsing {filename}: {str(e)}</h2>"
